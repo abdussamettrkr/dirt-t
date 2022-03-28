@@ -2,7 +2,7 @@ import importlib
 import tensorflow as tf
 import tensorbayes as tb
 import numpy as np
-from extra_layers import basic_accuracy, vat_loss
+from codebase.models.extra_layers import basic_accuracy, vat_loss
 from codebase.args import args
 from pprint import pprint
 from tensorbayes.tfutils import softmax_cross_entropy_with_two_logits as softmax_xent_two
@@ -12,7 +12,7 @@ from tensorflow.python.ops.nn_impl import sigmoid_cross_entropy_with_logits as s
 nn = importlib.import_module('codebase.models.nns.{}'.format(args.nn))
 
 def dirtt():
-    T = tb.utils.TensorDict(dict(
+    T = dict(
         sess = tf.Session(config=tb.growth_config()),
         src_x = placeholder((None, 32, 32, 3)),
         src_y = placeholder((None, args.Y)),
@@ -20,14 +20,17 @@ def dirtt():
         trg_y = placeholder((None, args.Y)),
         test_x = placeholder((None, 32, 32, 3)),
         test_y = placeholder((None, args.Y)),
-    ))
+    )
+
+
     # Supervised and conditional entropy minimization
-    src_e = nn.classifier(T.src_x, phase=True, enc_phase=1, trim=args.trim)
-    trg_e = nn.classifier(T.trg_x, phase=True, enc_phase=1, trim=args.trim, reuse=True, internal_update=True)
+    src_e = nn.classifier(T['src_x'], phase=True, enc_phase=1, trim=args.trim)
+    trg_e = nn.classifier(T['trg_x'], phase=True, enc_phase=1, trim=args.trim, reuse=True, internal_update=True)
+
     src_p = nn.classifier(src_e, phase=True, enc_phase=0, trim=args.trim)
     trg_p = nn.classifier(trg_e, phase=True, enc_phase=0, trim=args.trim, reuse=True, internal_update=True)
 
-    loss_src_class = tf.reduce_mean(softmax_xent(labels=T.src_y, logits=src_p))
+    loss_src_class = tf.reduce_mean(softmax_xent(labels=T['src_y'], logits=src_p))
     loss_trg_cent = tf.reduce_mean(softmax_xent_two(labels=trg_p, logits=trg_p))
 
     # Domain confusion
@@ -47,17 +50,17 @@ def dirtt():
         loss_domain = constant(0)
 
     # Virtual adversarial training (turn off src in non-VADA phase)
-    loss_src_vat = vat_loss(T.src_x, src_p, nn.classifier) if args.sw > 0 and args.dirt == 0 else constant(0)
-    loss_trg_vat = vat_loss(T.trg_x, trg_p, nn.classifier) if args.tw > 0 else constant(0)
+    loss_src_vat = vat_loss(T['src_x'], src_p, nn.classifier) if args.sw > 0 and args.dirt == 0 else constant(0)
+    loss_trg_vat = vat_loss(T['trg_x'], trg_p, nn.classifier) if args.tw > 0 else constant(0)
 
     # Evaluation (EMA)
     ema = tf.train.ExponentialMovingAverage(decay=0.998)
     var_class = tf.get_collection('trainable_variables', 'class/')
     ema_op = ema.apply(var_class)
-    ema_p = nn.classifier(T.test_x, phase=False, reuse=True, getter=tb.tfutils.get_getter(ema))
+    ema_p = nn.classifier(T['test_x'], phase=False, reuse=True, getter=tb.tfutils.get_getter(ema))
 
     # Teacher model (a back-up of EMA model)
-    teacher_p = nn.classifier(T.test_x, phase=False, scope='teacher')
+    teacher_p = nn.classifier(T['test_x'], phase=False, scope='teacher')
     var_main = tf.get_collection('variables', 'class/(?!.*ExponentialMovingAverage:0)')
     var_teacher = tf.get_collection('variables', 'teacher/(?!.*ExponentialMovingAverage:0)')
     teacher_assign_ops = []
@@ -66,13 +69,13 @@ def dirtt():
         ave = ave if ave else m
         teacher_assign_ops += [tf.assign(t, ave)]
     update_teacher = tf.group(*teacher_assign_ops)
-    teacher = tb.function(T.sess, [T.test_x], tf.nn.softmax(teacher_p))
+    teacher = tb.function(T['sess'], [T['test_x']], tf.nn.softmax(teacher_p))
 
     # Accuracies
-    src_acc = basic_accuracy(T.src_y, src_p)
-    trg_acc = basic_accuracy(T.trg_y, trg_p)
-    ema_acc = basic_accuracy(T.test_y, ema_p)
-    fn_ema_acc = tb.function(T.sess, [T.test_x, T.test_y], ema_acc)
+    src_acc = basic_accuracy(T['src_y'], src_p)
+    trg_acc = basic_accuracy(T['trg_y'], trg_p)
+    ema_acc = basic_accuracy(T['test_y'], ema_p)
+    fn_ema_acc = tb.function(T['sess'], [T['test_x'], T['test_y']], ema_acc)
 
     # Optimizer
     dw = constant(args.dw) if args.dirt == 0 else constant(0)
@@ -114,7 +117,7 @@ def dirtt():
 
     # Saved ops
     c = tf.constant
-    T.ops_print = [c('disc'), loss_disc,
+    T['ops_print'] = [c('disc'), loss_disc,
                    c('domain'), loss_domain,
                    c('class'), loss_src_class,
                    c('cent'), loss_trg_cent,
@@ -122,10 +125,10 @@ def dirtt():
                    c('src_vat'), loss_src_vat,
                    c('src'), src_acc,
                    c('trg'), trg_acc]
-    T.ops_disc = [summary_disc, train_disc]
-    T.ops_main = [summary_main, train_main]
-    T.fn_ema_acc = fn_ema_acc
-    T.teacher = teacher
-    T.update_teacher = update_teacher
+    T['ops_disc'] = [summary_disc, train_disc]
+    T['ops_main'] = [summary_main, train_main]
+    T['fn_ema_acc'] = fn_ema_acc
+    T['teacher'] = teacher
+    T['update_teacher'] = update_teacher
 
     return T

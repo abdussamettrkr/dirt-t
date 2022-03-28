@@ -3,11 +3,11 @@ import numpy as np
 import shutil
 import tensorbayes as tb
 import tensorflow as tf
-from args import args
+from .args import args
 
 def u2t(x):
     """Convert uint8 to [-1, 1] float
-    """
+    cod"""
     return x.astype('float32') / 255 * 2 - 1
 
 def s2t(x):
@@ -30,7 +30,7 @@ def delete_existing(path):
 def save_model(saver, M, model_dir, global_step):
     path = saver.save(M.sess, os.path.join(model_dir, 'model'),
                       global_step=global_step)
-    print "Saving model to {}".format(path)
+    print ("Saving model to {}".format(path))
 
 def save_value(fn_val, tag, data,
                train_writer=None, global_step=None, print_list=None,
